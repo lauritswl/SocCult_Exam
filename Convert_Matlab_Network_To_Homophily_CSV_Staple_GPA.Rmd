@@ -1,0 +1,273 @@
+---
+title: "Network_Analysis"
+author: "Laurits Lyngbæk"
+date: "2023-05-15"
+output: html_document
+---
+
+# Setup chunck
+Loading packages
+```{r}
+pacman::p_load(tidyverse) # General Use Package
+pacman::p_load(igraph) # Network package
+pacman::p_load(netseg) # Network analysis package for homophily
+```
+
+## Load Data
+
+```{r}
+# library to read matlab data formats into R
+pacman::p_load(R.matlab)
+```
+
+```{r}
+# Read .mat file
+harward_data <- R.matlab::readMat(
+    './Data_folder/Harward_Data/data.mat')
+```
+
+
+```{r}
+# Get school GPA
+df_school_gpa <- as.data.frame(harward_data$gpa.school)
+
+# Better collumn names
+colnames(df_school_gpa) <- paste0("GPA_",1:6)
+
+df_school_gpa[, paste0("GPA_", 1:6)] <- rnorm(655, 3.85, 0.55)
+```
+
+
+
+It is easiest to use the network data if its spread out into multiple objects.
+```{r}
+# Get Network Data as AdjMat_
+for (Timestamp in 1:length(harward_data$networks.school)) {
+    # Assign the data frame to the paste string
+    assign(
+        paste0("AdjMat_", Timestamp),
+        as.matrix(as.data.frame(harward_data$networks.school[Timestamp]))
+        )}
+```
+
+```{r}
+# Get Network Data as dataframes
+for (Timestamp in 1:length(harward_data$networks.school)) {
+    # Assign the data frame to the paste string
+    assign(
+        paste0("AdjDF_", Timestamp),
+        as.data.frame(harward_data$networks.school[Timestamp])
+)}
+```
+
+### Rotate df
+
+
+network differences:
+```{r}
+# get() function makes r regonize the paste0 string as a object
+for (number in 1:5) {
+    # Assign the data frame to the paste string
+    assign(
+        paste0("network_diff_", number, number+1),
+        get(paste0('AdjDF_',number))!=get(paste0('AdjDF_',number+1)))
+    print(paste0("network_diff_", number, number+1,":"))
+    print(sum(get(paste0("network_diff_", number, number+1))))
+}
+rm(network_diff_12,
+   network_diff_23,
+   network_diff_34,
+   network_diff_45,
+   network_diff_56)
+```
+
+META_DATA_DF:
+
+## Create node list
+```{r}
+# Save ID and GPA into node list
+node_list <- tibble(ID = 1:655) %>% 
+    cbind(df_school_gpa) %>% 
+    mutate(ID = paste0('X',ID))
+
+
+# Cleanup environment
+rm(df_school_gpa)
+
+```
+## Create igraph graph
+```{r}
+for (Timestamp in 1:6) {
+    assign(
+        paste0('igraph_', Timestamp),
+        igraph::graph_from_adjacency_matrix(
+            adjmatrix = get(paste0('AdjMat_',Timestamp)),
+            mode = 'undirected',weighted = TRUE)
+        )}
+
+```
+
+## get edgelists from graphs:
+```{r}
+graph_list <- list(igraph_1, igraph_2, igraph_3, igraph_4, igraph_5, igraph_6)
+```
+
+
+```{r}
+#Midways cleanup
+rm(AdjDF_1,AdjDF_2,AdjDF_3,AdjDF_4,AdjDF_5,AdjDF_6)
+rm(AdjMat_1,AdjMat_2,AdjMat_3,AdjMat_4,AdjMat_5,AdjMat_6)
+rm(igraph_1, igraph_2, igraph_3, igraph_4, igraph_5, igraph_6)
+```
+
+
+
+
+```{r}
+node_list$Degrees_1 <- degree(graph_list[[1]])
+node_list$Degrees_2 <- degree(graph_list[[2]])
+node_list$Degrees_3 <- degree(graph_list[[3]])
+node_list$Degrees_4 <- degree(graph_list[[4]])
+node_list$Degrees_5 <- degree(graph_list[[5]])
+node_list$Degrees_6 <- degree(graph_list[[6]])
+# Create sum of degrees
+node_list <- node_list %>% 
+    mutate(avg_degrees = (Degrees_1+Degrees_2+Degrees_3+Degrees_4+Degrees_5+Degrees_6)/6)
+```
+
+
+
+
+
+
+## Create Functions
+### Return Edge Notes
+```{r}
+return_edge_nodes <- function(edgelist, node_name_as_string){
+    edges_of_node <- character() # create empty character vector
+    for (i in 1:length(edgelist[,1])){
+        #Print node of col 2 if Node_name is in col 1
+        if (edgelist[i,1] == node_name_as_string){
+            edges_of_node<- c(edges_of_node, edgelist[i,2])} #append to return_vector
+        #Print node of col 1 if Node_name is in col 2
+        if (edgelist[i,2] == node_name_as_string){
+            edges_of_node <- c(edges_of_node, edgelist[i,1])}}
+    return(edges_of_node)
+}
+```
+
+
+
+### Return average homophily function
+```{r}
+return_average_homophily <- function(Timestamp, Ego_Number){
+    ### OBS: Requires the node_list dataframe and graphlist list of igraph-objects to be saved in global environment ###
+
+    # Define variables
+    Ego_String <-  paste0('X',Ego_Number)
+    GPA_String <- paste0('GPA_',Timestamp)
+    Ego_gpa <- subset(node_list, ID == Ego_String)[[GPA_String]]
+    Ego_edgelist <- as_edgelist(graph_list[[Timestamp]])
+    
+    # Return a list of alter nodes:
+    edges_of_node <- return_edge_nodes(Ego_edgelist, Ego_String)
+    homophily_tibble <- tibble(ID = edges_of_node) %>% 
+        merge(node_list, by = 'ID') # Merge data into list
+    
+    # Create homophily euclidian distance of those alter nodes
+    homophily_tibble <- homophily_tibble %>% 
+        mutate(euclidean_dist =
+                   (homophily_tibble[[GPA_String]]-Ego_gpa)^2)
+    
+    # Save Avg_homophily of between ego and alter nodes: 
+    Ego_Avg_Homo <- sqrt(mean(homophily_tibble$euclidean_dist))
+    return(Ego_Avg_Homo)
+}
+
+```
+
+
+## Excecute Functions
+Takes one minute to run
+```{r}
+for (Timestamp in 1:length(graph_list)){
+     #Create empty vector for timestamp:
+     Homophily_Vector_For_Timestamp <- character()
+
+     # Loop for filling out vector with homophily means of nodes
+     for (Ego_Number in 1:length(node_list[,1])){
+         # R-syntax for appending value to string
+         Homophily_Vector_For_Timestamp <-
+             c(Homophily_Vector_For_Timestamp,
+               return_average_homophily(Timestamp,Ego_Number))}
+
+     Homophily_string <- paste0('Homophily_', Timestamp)
+     node_list[Homophily_string] <- Homophily_Vector_For_Timestamp
+}
+
+rm(Homophily_string, Homophily_Vector_For_Timestamp, Ego_Number, i, number, Timestamp)
+```
+
+
+### Create a average difference function
+```{r}
+return_average_difference <- function(Timestamp, Ego_Number){
+    ### OBS: Requires the node_list dataframe and graphlist list of igraph-objects to be saved in global environment ###
+
+    # Define variables
+    Ego_String <-  paste0('X',Ego_Number)
+    GPA_String <- paste0('GPA_',Timestamp)
+    Ego_gpa <- subset(node_list, ID == Ego_String)[[GPA_String]]
+    Ego_gpa <- subset(node_list, ID == Ego_String)[[GPA_String]]
+    Ego_edgelist <- as_edgelist(graph_list[[Timestamp]])
+    
+    # Return a list of alter nodes:
+    edges_of_node <- return_edge_nodes(Ego_edgelist, Ego_String)
+    diff_tibble <- tibble(ID = edges_of_node) %>% 
+        merge(node_list, by = 'ID') # Merge data into list
+    
+    # Create diff of those alter nodes
+    diff_tibble <- diff_tibble %>% 
+        mutate(euclidean_dist =
+                   (diff_tibble[[GPA_String]]-Ego_gpa))
+    
+    # Save Avg_diff ego and alter nodes: 
+    Ego_Avg_diff <- mean(diff_tibble$euclidean_dist)
+    return(Ego_Avg_diff)
+}
+```
+
+### Get average diff
+```{r}
+for (Timestamp in 1:length(graph_list)){
+     #Create empty vector for timestamp:
+     Diff_Vector_For_Timestamp <- character()
+
+     # Loop for filling out vector with homophily means of nodes
+     for (Ego_Number in 1:length(node_list[,1])){
+         # R-syntax for appending value to string
+         Diff_Vector_For_Timestamp <-
+             c(Diff_Vector_For_Timestamp,
+               return_average_difference(Timestamp,Ego_Number))}
+
+     Diff_string <- paste0('GPA_Diff', Timestamp)
+     node_list[Diff_string] <- Diff_Vector_For_Timestamp
+}
+
+
+```
+
+
+## Save node_list as CSV to import in other script
+```{r}
+write.csv(node_list,'Data_folder/homophily_data_fixed_GPA.csv')
+```
+
+
+
+
+
+
+
+
+

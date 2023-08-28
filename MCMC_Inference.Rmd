@@ -1,0 +1,494 @@
+---
+title: "MCMC bayes on network data"
+author: "Laurits Lyngbæk"
+date: "2023-05-28"
+output: html_document
+---
+# Set up:
+## Install rethinking and tidyverse:
+```{r}
+pacman::p_load(rethinking, tidyverse, lme4, moments, diptest, tidybayes)
+```
+
+## Load preprocessed file:
+```{r}
+df_GPA <- read_csv(file = "./Data_folder/homophily_data.csv")
+```
+## Restructure the Data
+```{r}
+library(dplyr)
+library(tidyr)
+
+df1 <- df_GPA %>%
+  select(ID, avg_degrees, GPA_1, GPA_2, GPA_3, GPA_4, GPA_5, GPA_6) %>%
+  pivot_longer(cols = starts_with("GPA_"),
+               names_to = "Timepoint",
+               values_to = "GPA") %>% 
+  mutate(Timepoint = str_extract(Timepoint, "\\d+"))
+
+
+df2 <- df_GPA %>%
+  select(ID, Degrees_1, Degrees_2, Degrees_3, Degrees_4, Degrees_5, Degrees_6) %>%
+  pivot_longer(cols = starts_with("Degrees_"),
+               names_to = "Timepoint",
+               values_to = "Degrees") %>% 
+  mutate(Timepoint = str_extract(Timepoint, "\\d+"))
+
+
+df3 <- df_GPA %>%
+  select(ID, Homophily_1, Homophily_2, Homophily_3, Homophily_4, Homophily_5, Homophily_6) %>%
+  pivot_longer(cols = starts_with("Homophily_"),
+               names_to = "Timepoint",
+               values_to = "Homophily") %>% 
+  mutate(Timepoint = str_extract(Timepoint, "\\d+"))
+
+
+df4 <- df_GPA %>%
+  select(ID, GPA_Diff1, GPA_Diff2, GPA_Diff3, GPA_Diff4, GPA_Diff5, GPA_Diff6) %>%
+  pivot_longer(cols = starts_with("GPA_Diff"),
+               names_to = "Timepoint",
+               values_to = "GPA_Diff") %>% 
+  mutate(Timepoint = str_extract(Timepoint, "\\d+"))
+
+df_Merged <- df1 %>%
+  full_join(df2) %>%
+  full_join(df3) %>%
+  full_join(df4)
+
+rm(df1, df2, df3, df4)
+```
+# Remove t = 4
+```{r}
+
+#df_Merged <- df_Merged[df_Merged$Timepoint != 4, ]  
+df_Merged <- df_Merged %>% 
+    mutate(Homophily_last = ifelse(lag(Timepoint)!=6,lag(Homophily),NA)) %>% 
+    mutate(Homophily_change = sqrt((Homophily-Homophily_last)^2)) %>% 
+    mutate(GPA_Change = ifelse(lag(Timepoint)!=6,
+                               sqrt((lag(GPA)-GPA)^2),NA))
+```
+
+
+
+# Investigate Data:
+```{r}
+gg <- ggplot(df_Merged, aes(x = Timepoint, y = Homophily)) +
+  geom_violin(fill="light blue") +
+    geom_boxplot(width=0.3,alpha=0.5)+
+  labs(title = "Violin plot of homophily - the mean distance between the GPA of ego and alters ",
+       x = "Trimester",
+       y = "Average homophily")+
+    theme_bw()
+gg
+ggsave(file = "violin.png",plot = gg)
+
+
+rethinking::precis(df_Merged)
+
+df_Merged %>% 
+    count(Timepoint) %>% 
+    summary()
+
+(df_Merged$Degrees)
+```
+
+
+```{r}
+
+# Create a density plot for each Timepoint
+gg <- ggplot(df_Merged, aes(x = GPA, fill = Timepoint)) +
+  geom_density(alpha = 0.5) +  # Use alpha to set transparency
+  labs(x = "GPA Difference", y = "Density", title = "Density Plot of GPA Difference by Timepoint") +
+  theme_minimal()+
+  facet_wrap(~ Timepoint, ncol = 3)  # Facet by Timepoint in 2 columns
+
+
+print(gg)
+
+#ggsave(file = "GPA_Diff.png",plot = gg)
+
+```
+
+```{r}
+
+# Assuming df_Merged is your dataframe
+
+# Create a density plot for Degrees for each Timepoint and facet by Timepoint
+gg <- ggplot(df_Merged, aes(x = Degrees, fill = Timepoint)) +
+  geom_density(alpha = 0.5) +  # Use alpha to set transparency
+  labs(x = "Degrees", y = "Density", title = "Density Plot of Degrees by Timepoint") +
+  theme_minimal()+
+        xlim(0,15)  # Facet by Timepoint in 2 columns
+
+print(gg)
+ggsave(file = "Degrees.png",plot = gg)
+
+```
+```{r} 
+#Try to copy homophily index
+df_Merged <- df_Merged %>% 
+    mutate(average_alter_GPA = GPA+GPA_Diff)
+
+print("t = 1")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==1)
+cor.test(df_fill$GPA, df_fill$GPA)
+precis(df_fill$GPA_Diff)
+skewness(df_fill$GPA_Diff)
+dip.test(df_fill$GPA_Diff)
+
+
+print("t = 2")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==2)
+cor.test(df_fill$GPA, df_fill$average_alter_GPA)
+precis(df_fill$GPA_Diff)
+skewness(df_fill$GPA_Diff)
+dip.test(df_fill$GPA_Diff)
+
+
+print("t = 3")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==3)
+cor.test(df_fill$GPA, df_fill$average_alter_GPA)
+precis(df_fill$GPA_Diff)
+skewness(df_fill$GPA_Diff)
+dip.test(df_fill$GPA_Diff)
+
+print("t = 4")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==4)
+cor.test(df_fill$GPA, df_fill$average_alter_GPA)
+precis(df_fill$GPA_Diff)
+skewness(df_fill$GPA_Diff)
+dip.test(df_fill$GPA_Diff)
+
+
+print("t = 5")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==5)
+cor.test(df_fill$GPA, df_fill$average_alter_GPA)
+precis(df_fill$GPA_Diff)
+skewness(df_fill$GPA_Diff)
+dip.test(df_fill$GPA_Diff)
+
+
+print("t = 6")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==6)
+cor.test(df_fill$GPA, df_fill$average_alter_GPA)
+precis(df_fill$GPA_Diff)
+skewness(df_fill$GPA_Diff)
+dip.test(df_fill$GPA_Diff)
+```
+
+```{r} 
+#Try to copy homophily index
+df_Merged <- df_Merged %>% 
+    mutate(average_alter_GPA = GPA+GPA_Diff)
+
+print("t = 1")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==1)
+length(df_fill$GPA_Diff)
+
+
+print("t = 2")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==2)
+length(df_fill$GPA_Diff)
+
+
+print("t = 3")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==3)
+length(df_fill$GPA_Diff)
+
+print("t = 4")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==4)
+length(df_fill$GPA_Diff)
+
+
+print("t = 5")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==5)
+length(df_fill$GPA_Diff)
+
+
+print("t = 6")
+df_fill <- df_Merged %>% 
+    filter(Timepoint==6)
+length(df_fill$GPA_Diff)
+```
+
+
+```{r}
+
+#Try to copy homophily index
+
+df_Merged_rm_na_alter <- df_Merged[!is.na(df_Merged$average_alter_GPA),]
+cor_vector <- c()
+
+
+print("t = 1")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==1)
+cor_vector <- c(
+    cor_vector,
+    cor(df_fill$GPA, df_fill$average_alter_GPA))
+cor(df_fill$GPA, df_fill$average_alter_GPA)
+
+print("t = 2")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==2)
+cor_vector <- c(
+    cor_vector,
+    cor(df_fill$GPA, df_fill$average_alter_GPA))
+cor(df_fill$GPA, df_fill$average_alter_GPA)
+
+
+print("t = 3")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==3)
+cor_vector <- c(
+    cor_vector,
+    cor(df_fill$GPA, df_fill$average_alter_GPA))
+cor(df_fill$GPA, df_fill$average_alter_GPA)
+
+
+print("t = 4")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==4)
+cor_vector <- c(
+    cor_vector,
+    cor(df_fill$GPA, df_fill$average_alter_GPA))
+cor(df_fill$GPA, df_fill$average_alter_GPA)
+
+
+print("t = 5")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==5)
+cor_vector <- c(
+    cor_vector,
+    cor(df_fill$GPA, df_fill$average_alter_GPA))
+cor(df_fill$GPA, df_fill$average_alter_GPA)
+
+
+print("t = 6")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==6)
+cor_vector <- c(
+    cor_vector,
+    cor(df_fill$GPA, df_fill$average_alter_GPA))
+cor(df_fill$GPA, df_fill$average_alter_GPA)
+
+
+
+```
+```{r}
+
+
+
+df_Merged_rm_na_alter <- df_Merged[!is.na(df_Merged$average_alter_GPA),]
+
+
+
+print("t = 1")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==1)
+mean(df_fill$GPA_Diff)
+sd(df_fill$GPA_Diff)
+
+print("t = 2")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==2)
+mean(df_fill$GPA_Diff)
+sd(df_fill$GPA_Diff)
+
+
+print("t = 3")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==3)
+mean(df_fill$GPA_Diff)
+sd(df_fill$GPA_Diff)
+
+print("t = 4")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==4)
+mean(df_fill$GPA_Diff)
+sd(df_fill$GPA_Diff)
+
+
+print("t = 5")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==5)
+mean(df_fill$GPA_Diff)
+sd(df_fill$GPA_Diff)
+
+
+print("t = 6")
+df_fill <- df_Merged_rm_na_alter %>% 
+    filter(Timepoint==6)
+mean(df_fill$GPA_Diff)
+sd(df_fill$GPA_Diff)
+
+
+
+```
+
+
+
+```{r}
+cor_vector <- data.frame(Trimester = c(1,2,3,4,5,6))
+gg <- ggplot(cor_vector, aes(x = Trimester, y = Correlation,fill = Trimester)) +
+  geom_col() +  # Use alpha to set transparency
+  labs(title = "Correlation homophily by trimester") +
+  theme_minimal()
+
+print(gg)
+ggsave(file = "Correlation_Bars.png",plot = gg)
+```
+
+
+
+
+
+```{r}
+# Test for degree GPA correlation
+
+model_degree_GPA <- quap(alist(
+     Degrees ~ dnorm(mu, sigma),
+     mu <- a + bM * GPA,
+     a ~ dnorm( 0 , 0.5 ) ,
+     bM ~ dnorm( 0 , 3 ) ,
+     sigma ~ dexp( 1 )
+), data=df_Merged_rm_na_alter)
+precis(model_degree_GPA)
+
+```
+
+#MODEL!
+
+```{r}
+df_Merged <- df_Merged[!is.na(df_Merged$Homophily),]
+df_Merged <- df_Merged[!is.na(df_Merged$GPA_Diff),]
+```
+
+```{r}
+# Change dataset
+
+df_Merged$Timepoint <- as.numeric(df_Merged$Timepoint)
+
+
+model_1 <- quap(alist(
+     Degrees ~ dnorm(mu, sigma),
+     mu <- a + bM * Timepoint ,
+     a ~ dnorm( 0 , 0.5 ) ,
+     bM ~ dnorm( 0 , 0.5 ) ,
+     sigma ~ dexp( 1 )
+), data=df_Merged)
+precis(model_1)
+```
+
+```{r}
+# extract the posterior samples
+samples <- 
+
+# convert to tidy data frame
+tidy_samples <- tidy(samples)
+
+# plot the distributions
+tidy_samples %>%
+  ggplot(aes(x = value)) +
+  facet_wrap(~ parameter, scales = "free") +
+  stat_dist_slab()
+```
+
+
+
+```{r}
+df_Merged_2 <- df_Merged %>% 
+    mutate(ID = as.factor(ID))
+
+model_2 <- ulam(alist(
+     Homophily ~ dnorm(mu, sigma),
+     mu <- a + bM * Timepoint + bID[ID]*ID,
+     a ~ dnorm( 0 , 0.5 ) ,
+     bM ~ dnorm( 0 , 0.5 ) ,
+     bID[ID] ~ dnorm( 0 , 0.5 ),
+     sigma ~ dexp( 1 )
+), data=df_Merged_2,
+    seed=2022, 
+    chains = 4,
+    log_lik = TRUE,
+    iter = 2000, 
+    warmup = 1000)
+
+precis(model_2, depth = 2)
+
+
+```
+```{r}
+test_mod <- lme4::glmer(Homophily ~ Timepoint + (1|ID), data = df_Merged_2)
+summary(test_mod)
+```
+
+
+```{r}
+model_3 <- ulam(alist(
+     Homophily ~ dnorm(mu, sigma),
+     mu <- a + bM * Timepoint,
+     a ~ dnorm( 0 , 0.5 ) ,
+     bM ~ dnorm( 0 , 0.5 ) ,
+     sigma ~ dexp( 1 )
+), data=df_Merged_2,
+    seed=2022, 
+    chains = 4,
+    log_lik = TRUE,
+    iter = 2000, 
+    warmup = 1000)
+precis(model_3, depth = 2)
+```
+
+
+
+
+
+
+
+
+```{r}
+model_4_ <- ulam(alist(
+     Degrees ~ dnorm(mu, sigma),
+     mu <- a + bM * Timepoint,
+     a ~ dnorm( 10 , 10 ) ,
+     bM ~ dnorm( 0 , 10 ) ,
+     sigma ~ dexp( 1 )
+), data=df_Merged_2,
+    seed=2022, 
+    chains = 4,
+    log_lik = TRUE,
+    iter = 2000, 
+    warmup = 1000)
+
+```
+
+## Test correlation and gaussian distributions
+```{r}
+```{r}
+samples <- rnorm(1000, mean = 5, sd = 0.27)
+samples_2 <- samples + rnorm(1000, mean = 1, sd = 0.5)
+samples_3 <- samples + rnorm(1000, mean = 0, sd = 0.1)
+samples_4 <- samples + rnorm(1000, mean = -5, sd = 0.1)
+
+cor(samples, samples_2)
+cor(samples, samples_3)
+cor(samples, samples_4)
+```
+```
+
+
+
+
+

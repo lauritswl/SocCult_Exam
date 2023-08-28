@@ -1,0 +1,25 @@
+---
+title: "Network_Analysis"
+author: "Laurits Lyngbæk"
+date: "2023-05-15"
+output: html_document
+---
+### Setup chunck
+```{r}
+pacman::p_load(tidyverse, rethinking) # Main Packages
+```
+## Load Data
+```{r}
+pacman::p_load(haven) # For reading .dta files
+final_df <- haven::read_dta('./Lonoghui_network_data/Stata-program/final.dta')
+net_df <- haven::read_dta('./Lonoghui_network_data/Stata-program/net.dta')
+test <- haven::read_dta('./Lonoghui_network_data/Stata-program/psidmerge.dta')
+```
+
+
+```{r}
+summary(net_df)
+```
+
+
+
